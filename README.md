@@ -311,4 +311,3 @@ For issues or questions:
 ---
 
 **Note**: Remember to replace `YOUR_API_KEY_HERE` with your actual OpenWeatherMap API key in `app.js`, `forecast.js`, and `locations.js` before running the application.
-
