@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test API Key</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .result {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #ef4444;
+        }
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #3b82f6;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 OpenWeatherMap API Key Tester</h1>
+        
+        <div class="info">
+            <p><strong>Current API Key:</strong> <code>79fa7767ac09d5fc8db2c7505cd7fea3</code></p>
+            <p>Click the button below to test if your API key is working.</p>
+        </div>
+        
+        <button onclick="testAPIKey()">Test API Key</button>
+        
+        <div id="result"></div>
+        
+        <div class="info" style="margin-top: 20px;">
+            <h3>Common Issues:</h3>
+            <ul>
+                <li><strong>401 Unauthorized:</strong> API key is invalid or not activated yet (new keys take up to 2 hours)</li>
+                <li><strong>429 Too Many Requests:</strong> Rate limit exceeded</li>
+                <li><strong>Network Error:</strong> Check your internet connection</li>
+            </ul>
+            <p><strong>Solution:</strong> If you get a 401 error, verify your API key at <a href="https://home.openweathermap.org/api_keys" target="_blank">OpenWeatherMap Dashboard</a></p>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = '79fa7767ac09d5fc8db2c7505cd7fea3';
+        
+        async function testAPIKey() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="info">Testing API key...</div>';
+            
+            // Test with a simple API call (London coordinates)
+            const testUrl = `https://api.openweathermap.org/data/2.5/weather?lat=51.5074&lon=-0.1278&units=metric&appid=${API_KEY}`;
+            
+            try {
+                const response = await fetch(testUrl);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <h3>✅ API Key is Valid!</h3>
+                            <p><strong>Test Location:</strong> ${data.name}, ${data.sys.country}</p>
+                            <p><strong>Temperature:</strong> ${Math.round(data.main.temp)}°C</p>
+                            <p><strong>Weather:</strong> ${data.weather[0].description}</p>
+                            <p>Your API key is working correctly. The app should work now!</p>
+                        </div>
+                    `;
+                } else {
+                    let errorMsg = `API Error: ${response.status}`;
+                    if (data.message) {
+                        errorMsg += ` - ${data.message}`;
+                    }
+                    
+                    if (response.status === 401) {
+                        errorMsg = '❌ Invalid API Key (401 Unauthorized)<br><br>' +
+                                  'Possible reasons:<br>' +
+                                  '1. API key is incorrect<br>' +
+                                  '2. API key is not activated yet (new keys take up to 2 hours)<br>' +
+                                  '3. API key has been revoked<br><br>' +
+                                  '<strong>Solution:</strong> Check your API key at <a href="https://home.openweathermap.org/api_keys" target="_blank">OpenWeatherMap Dashboard</a>';
+                    }
+                    
+                    resultDiv.innerHTML = `<div class="error"><h3>${errorMsg}</h3></div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h3>❌ Network Error</h3>
+                        <p>${error.message}</p>
+                        <p>Please check your internet connection and try again.</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            setTimeout(testAPIKey, 500);
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Weather PWA - Saved Locations">
+    <meta name="theme-color" content="#3b82f6">
+    <title>Weather PWA - Locations</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/png" href="icons/icon-192x192.png">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1 class="nav-logo">🌤️ Weather</h1>
+            <ul class="nav-menu">
+                <li><a href="index.html" class="nav-link">Current</a></li>
+                <li><a href="forecast.html" class="nav-link">Forecast</a></li>
+                <li><a href="locations.html" class="nav-link active">Locations</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Offline Banner -->
+    <div id="offline-banner" class="offline-banner hidden">
+        <span>⚠️ You are currently offline. Showing cached data.</span>
+    </div>
+
+    <!-- Main Content -->
+    <main class="container">
+        <div class="locations-card">
+            <div class="locations-header">
+                <h2>Saved Locations</h2>
+                <button onclick="addCurrentLocation()" class="btn-add-location">
+                    📍 Add Current Location
+                </button>
+            </div>
+
+            <!-- Add Location Form -->
+            <div class="add-location-form">
+                <input 
+                    type="text" 
+                    id="location-input" 
+                    placeholder="Enter city name..."
+                    class="location-input"
+                >
+                <button onclick="addLocation()" class="btn-add">Add Location</button>
+            </div>
+
+            <!-- Locations List -->
+            <div id="locations-list" class="locations-list">
+                <p class="empty-state">No locations saved yet. Add your first location above!</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="locations.js"></script>
+    <script src="service-worker-register.js"></script>
+</body>
+</html>
+

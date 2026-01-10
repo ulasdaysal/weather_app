@@ -1,0 +1,25 @@
+# API Keys (should not be committed)
+*.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node modules (if using npm)
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+

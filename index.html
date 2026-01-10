@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Weather PWA - Get current weather and forecasts">
+    <meta name="theme-color" content="#3b82f6">
+    <title>Weather PWA - Current Weather</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/png" href="icons/icon-192x192.png">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1 class="nav-logo">🌤️ Weather</h1>
+            <ul class="nav-menu">
+                <li><a href="index.html" class="nav-link active">Current</a></li>
+                <li><a href="forecast.html" class="nav-link">Forecast</a></li>
+                <li><a href="locations.html" class="nav-link">Locations</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Offline Banner -->
+    <div id="offline-banner" class="offline-banner hidden">
+        <span>⚠️ You are currently offline. Showing cached data.</span>
+    </div>
+
+    <!-- Main Content -->
+    <main class="container">
+        <div class="weather-card">
+            <!-- Loading State -->
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Loading weather data...</p>
+            </div>
+
+            <!-- Error State -->
+            <div id="error" class="error hidden">
+                <p id="error-message"></p>
+                <button onclick="loadWeather()" class="btn-retry">Retry</button>
+            </div>
+
+            <!-- Weather Content -->
+            <div id="weather-content" class="weather-content hidden">
+                <!-- Location Header -->
+                <div class="location-header">
+                    <h2 id="location-name">--</h2>
+                    <button id="use-location-btn" class="btn-location" title="Use current location">
+                        📍
+                    </button>
+                </div>
+
+                <!-- Current Weather -->
+                <div class="current-weather">
+                    <div class="weather-icon-container">
+                        <img id="weather-icon" src="" alt="Weather icon" class="weather-icon">
+                    </div>
+                    <div class="temperature">
+                        <span id="temperature">--</span>
+                        <span class="unit">°C</span>
+                    </div>
+                    <p id="weather-description" class="weather-description">--</p>
+                </div>
+
+                <!-- Weather Details -->
+                <div class="weather-details">
+                    <div class="detail-item">
+                        <span class="detail-label">Feels Like</span>
+                        <span id="feels-like" class="detail-value">--°C</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Humidity</span>
+                        <span id="humidity" class="detail-value">--%</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Wind Speed</span>
+                        <span id="wind-speed" class="detail-value">-- km/h</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Pressure</span>
+                        <span id="pressure" class="detail-value">-- hPa</span>
+                    </div>
+                </div>
+
+                <!-- Last Updated -->
+                <p class="last-updated" id="last-updated">Last updated: --</p>
+            </div>
+        </div>
+
+        <!-- Notification Permission -->
+        <div id="notification-prompt" class="notification-prompt hidden">
+            <p>Enable notifications to receive weather alerts?</p>
+            <button onclick="requestNotificationPermission()" class="btn-notify">Enable Notifications</button>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+    <script src="service-worker-register.js"></script>
+</body>
+</html>
+
