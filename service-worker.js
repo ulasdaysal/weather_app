@@ -12,26 +12,41 @@ const CACHE_NAME = 'weather-pwa-v1';
 const STATIC_CACHE = 'weather-pwa-static-v1';
 const API_CACHE = 'weather-pwa-api-v1';
 
-// Assets to cache on install (static resources)
+/**
+ * Get base path for assets (works in subdirectories)
+ */
+function getBasePath() {
+    // Get the directory where service-worker.js is located
+    const basePath = self.location.pathname.replace(/\/[^/]*$/, '');
+    return basePath || '';
+}
+
+const BASE_PATH = getBasePath();
+
+// Assets to cache on install (static resources) - using relative paths
 const STATIC_ASSETS = [
-    '/',
-    '/index.html',
-    '/forecast.html',
-    '/locations.html',
-    '/styles.css',
-    '/app.js',
-    '/forecast.js',
-    '/locations.js',
-    '/service-worker-register.js',
-    '/manifest.json',
-    '/icons/icon-72x72.png',
-    '/icons/icon-96x96.png',
-    '/icons/icon-128x128.png',
-    '/icons/icon-144x144.png',
-    '/icons/icon-152x152.png',
-    '/icons/icon-192x192.png',
-    '/icons/icon-384x384.png',
-    '/icons/icon-512x512.png'
+    `${BASE_PATH}/`,
+    `${BASE_PATH}/index.html`,
+    `${BASE_PATH}/forecast.html`,
+    `${BASE_PATH}/locations.html`,
+    `${BASE_PATH}/styles.css`,
+    `${BASE_PATH}/config.js`,
+    `${BASE_PATH}/utils.js`,
+    `${BASE_PATH}/api.js`,
+    `${BASE_PATH}/modal.js`,
+    `${BASE_PATH}/app.js`,
+    `${BASE_PATH}/forecast.js`,
+    `${BASE_PATH}/locations.js`,
+    `${BASE_PATH}/service-worker-register.js`,
+    `${BASE_PATH}/manifest.json`,
+    `${BASE_PATH}/icons/icon-72x72.png`,
+    `${BASE_PATH}/icons/icon-96x96.png`,
+    `${BASE_PATH}/icons/icon-128x128.png`,
+    `${BASE_PATH}/icons/icon-144x144.png`,
+    `${BASE_PATH}/icons/icon-152x152.png`,
+    `${BASE_PATH}/icons/icon-192x192.png`,
+    `${BASE_PATH}/icons/icon-384x384.png`,
+    `${BASE_PATH}/icons/icon-512x512.png`
 ];
 
 /**
@@ -118,18 +133,23 @@ self.addEventListener('fetch', (event) => {
 });
 
 /**
- * Check if request is for a static asset
+ * Check if request is for a static asset (works with relative paths)
  */
 function isStaticAsset(url) {
-    return url.includes('/styles.css') ||
-           url.includes('/app.js') ||
-           url.includes('/forecast.js') ||
-           url.includes('/locations.js') ||
-           url.includes('/service-worker-register.js') ||
-           url.includes('/manifest.json') ||
-           url.includes('/icons/') ||
-           url.endsWith('.html') ||
-           url.endsWith('/');
+    const urlPath = new URL(url).pathname;
+    return urlPath.includes('styles.css') ||
+           urlPath.includes('config.js') ||
+           urlPath.includes('utils.js') ||
+           urlPath.includes('api.js') ||
+           urlPath.includes('modal.js') ||
+           urlPath.includes('app.js') ||
+           urlPath.includes('forecast.js') ||
+           urlPath.includes('locations.js') ||
+           urlPath.includes('service-worker-register.js') ||
+           urlPath.includes('manifest.json') ||
+           urlPath.includes('/icons/') ||
+           urlPath.endsWith('.html') ||
+           urlPath.endsWith('/');
 }
 
 /**

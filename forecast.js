@@ -3,16 +3,14 @@
  * Handles 5-day weather forecast display
  */
 
-// API Configuration
-const API_KEY = '79fa7767ac09d5fc8db2c7505cd7fea3'; // OpenWeatherMap API key
-const API_BASE_URL = 'https://api.openweathermap.org/data/2.5';
-
-// Cache key for forecast data
-const FORECAST_CACHE_KEY = 'forecast_cache';
-
 // Initialize forecast page
 document.addEventListener('DOMContentLoaded', () => {
-    checkOnlineStatus();
+    if (!window.utils || !window.CONFIG || !window.apiClient) {
+        console.error('Required dependencies not loaded. Make sure config.js, utils.js, and api.js are loaded first.');
+        return;
+    }
+
+    window.utils.checkOnlineStatus();
     loadForecast();
     
     // Listen for online/offline events
@@ -21,23 +19,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * Check if device is online and update UI accordingly
- */
-function checkOnlineStatus() {
-    const offlineBanner = document.getElementById('offline-banner');
-    if (!navigator.onLine) {
-        offlineBanner.classList.remove('hidden');
-    } else {
-        offlineBanner.classList.add('hidden');
-    }
-}
-
-/**
  * Handle online event
  */
 function handleOnline() {
-    const offlineBanner = document.getElementById('offline-banner');
-    offlineBanner.classList.add('hidden');
+    const offlineBanner = window.utils.getElementByIdSafe('offline-banner');
+    if (offlineBanner) {
+        offlineBanner.classList.add('hidden');
+    }
     loadForecast(); // Refresh forecast when back online
 }
 
@@ -45,8 +33,10 @@ function handleOnline() {
  * Handle offline event
  */
 function handleOffline() {
-    const offlineBanner = document.getElementById('offline-banner');
-    offlineBanner.classList.remove('hidden');
+    const offlineBanner = window.utils.getElementByIdSafe('offline-banner');
+    if (offlineBanner) {
+        offlineBanner.classList.remove('hidden');
+    }
     // Load cached forecast data
     loadCachedForecast();
 }
@@ -55,10 +45,15 @@ function handleOffline() {
  * Load 5-day forecast data
  */
 async function loadForecast() {
-    const loading = document.getElementById('loading');
-    const error = document.getElementById('error');
-    const forecastContent = document.getElementById('forecast-content');
-    const errorMessage = document.getElementById('error-message');
+    const loading = window.utils.getElementByIdSafe('loading');
+    const error = window.utils.getElementByIdSafe('error');
+    const forecastContent = window.utils.getElementByIdSafe('forecast-content');
+    const errorMessage = window.utils.getElementByIdSafe('error-message');
+
+    if (!loading || !error || !forecastContent || !errorMessage) {
+        console.error('Required DOM elements not found');
+        return;
+    }
 
     // Show loading state
     loading.classList.remove('hidden');
@@ -66,14 +61,19 @@ async function loadForecast() {
     forecastContent.classList.add('hidden');
 
     try {
-        let location = getStoredLocation();
+        let location = window.utils.getStoredLocation();
         
         // If no stored location, try to get current location
         if (!location) {
-            location = await getCurrentLocation();
+            location = await window.utils.getCurrentLocation();
         }
 
-        const forecastData = await fetchForecastData(location.lat, location.lon);
+        // Validate location before making API call
+        if (!window.utils.validateLocation(location)) {
+            throw new Error('Invalid location data');
+        }
+
+        const forecastData = await window.apiClient.fetchWeatherData(location.lat, location.lon, 'forecast');
         displayForecast(forecastData, location);
         
         // Cache the forecast data
@@ -81,94 +81,58 @@ async function loadForecast() {
         
     } catch (err) {
         console.error('Error loading forecast:', err);
-        errorMessage.textContent = err.message || 'Failed to load forecast data. Please check your connection.';
-        error.classList.remove('hidden');
+        if (errorMessage) {
+            errorMessage.textContent = err.message || 'Failed to load forecast data. Please check your connection.';
+        }
+        if (error) {
+            error.classList.remove('hidden');
+        }
         
         // Try to load cached forecast as fallback
         loadCachedForecast();
     } finally {
-        loading.classList.add('hidden');
-    }
-}
-
-/**
- * Get current location using Geolocation API
- */
-function getCurrentLocation() {
-    return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) {
-            reject(new Error('Geolocation is not supported by your browser'));
-            return;
-        }
-
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const location = {
-                    lat: position.coords.latitude,
-                    lon: position.coords.longitude,
-                    name: 'Current Location'
-                };
-                resolve(location);
-            },
-            (error) => {
-                // Default to a fallback location
-                const fallbackLocation = { lat: 51.5074, lon: -0.1278, name: 'London, UK' };
-                resolve(fallbackLocation);
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 300000
-            }
-        );
-    });
-}
-
-/**
- * Fetch 5-day forecast data from API
- */
-async function fetchForecastData(lat, lon) {
-    const url = `${API_BASE_URL}/forecast?lat=${lat}&lon=${lon}&units=metric&appid=${API_KEY}`;
-    
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error('Invalid API key. Please check your OpenWeatherMap API key. New keys may take up to 2 hours to activate.');
-        } else if (response.status === 429) {
-            throw new Error('API rate limit exceeded. Please try again later.');
-        } else {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(`API error: ${response.status} - ${errorData.message || response.statusText}`);
+        if (loading) {
+            loading.classList.add('hidden');
         }
     }
-    
-    return await response.json();
 }
 
 /**
- * Display forecast data in the UI
+ * Display forecast data in the UI (XSS-safe)
  */
 function displayForecast(data, location) {
-    const forecastContent = document.getElementById('forecast-content');
-    const forecastList = document.getElementById('forecast-list');
-    const forecastLocation = document.getElementById('forecast-location');
+    const forecastContent = window.utils.getElementByIdSafe('forecast-content');
+    const forecastList = window.utils.getElementByIdSafe('forecast-list');
+    const forecastLocation = window.utils.getElementByIdSafe('forecast-location');
     
-    // Update location name
-    forecastLocation.textContent = location.name || `${data.city.name}, ${data.city.country}`;
+    if (!forecastContent || !forecastList || !forecastLocation) {
+        console.error('Required DOM elements not found');
+        return;
+    }
+
+    // Validate API response structure
+    if (!window.utils.validateWeatherResponse(data, 'forecast')) {
+        console.error('Invalid forecast data structure');
+        return;
+    }
+
+    // Safely update location name
+    const locationName = location.name || 
+        (data.city && data.city.name && data.city.country 
+            ? `${data.city.name}, ${data.city.country}` 
+            : 'Unknown Location');
+    window.utils.setTextContent(forecastLocation, locationName);
     
     // Group forecast by day
     const dailyForecasts = groupForecastsByDay(data.list);
     
-    // Clear existing forecast items
+    // Clear existing forecast items (XSS-safe)
     forecastList.innerHTML = '';
     
-    // Display each day's forecast
-    dailyForecasts.forEach((dayForecast, index) => {
-        if (index < 5) { // Show only 5 days
-            const forecastItem = createForecastItem(dayForecast);
-            forecastList.appendChild(forecastItem);
-        }
+    // Display each day's forecast (max 5 days)
+    dailyForecasts.slice(0, 5).forEach((dayForecast) => {
+        const forecastItem = createForecastItem(dayForecast);
+        forecastList.appendChild(forecastItem);
     });
     
     // Show forecast content
@@ -179,9 +143,18 @@ function displayForecast(data, location) {
  * Group forecast items by day
  */
 function groupForecastsByDay(forecastList) {
+    if (!Array.isArray(forecastList)) {
+        return [];
+    }
+
     const dailyForecasts = {};
     
     forecastList.forEach(item => {
+        if (!item || !item.dt || !item.weather || !Array.isArray(item.weather) || 
+            item.weather.length === 0 || !item.main) {
+            return; // Skip invalid items
+        }
+
         const date = new Date(item.dt * 1000);
         const dayKey = date.toDateString();
         
@@ -191,21 +164,26 @@ function groupForecastsByDay(forecastList) {
                 items: [],
                 minTemp: Infinity,
                 maxTemp: -Infinity,
-                icon: item.weather[0].icon,
-                description: item.weather[0].description
+                icon: item.weather[0].icon || '',
+                description: item.weather[0].description || ''
             };
         }
         
         dailyForecasts[dayKey].items.push(item);
-        dailyForecasts[dayKey].minTemp = Math.min(dailyForecasts[dayKey].minTemp, item.main.temp_min);
-        dailyForecasts[dayKey].maxTemp = Math.max(dailyForecasts[dayKey].maxTemp, item.main.temp_max);
+        
+        if (typeof item.main.temp_min === 'number') {
+            dailyForecasts[dayKey].minTemp = Math.min(dailyForecasts[dayKey].minTemp, item.main.temp_min);
+        }
+        if (typeof item.main.temp_max === 'number') {
+            dailyForecasts[dayKey].maxTemp = Math.max(dailyForecasts[dayKey].maxTemp, item.main.temp_max);
+        }
     });
     
     return Object.values(dailyForecasts);
 }
 
 /**
- * Create a forecast item element
+ * Create a forecast item element (XSS-safe)
  */
 function createForecastItem(dayForecast) {
     const item = document.createElement('div');
@@ -215,22 +193,45 @@ function createForecastItem(dayForecast) {
     const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
     const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     
-    const iconCode = dayForecast.icon;
-    const iconUrl = `https://openweathermap.org/img/wn/${iconCode}@2x.png`;
+    // Create day/date container
+    const dateContainer = document.createElement('div');
+    const dayElement = window.utils.createTextElement('div', dayName, 'forecast-day');
+    const dateElement = window.utils.createTextElement('div', dateStr, 'forecast-date');
+    dateContainer.appendChild(dayElement);
+    dateContainer.appendChild(dateElement);
     
-    item.innerHTML = `
-        <div>
-            <div class="forecast-day">${dayName}</div>
-            <div class="forecast-date">${dateStr}</div>
-        </div>
-        <div class="forecast-temp">
-            <img src="${iconUrl}" alt="${dayForecast.description}" class="forecast-icon-small">
-            <div class="forecast-temp-range">
-                <div class="forecast-high">${Math.round(dayForecast.maxTemp)}°C</div>
-                <div class="forecast-low">${Math.round(dayForecast.minTemp)}°C</div>
-            </div>
-        </div>
-    `;
+    // Create temperature container
+    const tempContainer = document.createElement('div');
+    tempContainer.className = 'forecast-temp';
+    
+    // Add icon if available
+    if (dayForecast.icon) {
+        const iconImg = document.createElement('img');
+        iconImg.src = `https://openweathermap.org/img/wn/${dayForecast.icon}@2x.png`;
+        iconImg.alt = dayForecast.description || 'Weather icon';
+        iconImg.className = 'forecast-icon-small';
+        tempContainer.appendChild(iconImg);
+    }
+    
+    // Create temperature range
+    const tempRange = document.createElement('div');
+    tempRange.className = 'forecast-temp-range';
+    
+    if (dayForecast.maxTemp !== Infinity && dayForecast.maxTemp !== -Infinity) {
+        const highTemp = window.utils.createTextElement('div', `${Math.round(dayForecast.maxTemp)}°C`, 'forecast-high');
+        tempRange.appendChild(highTemp);
+    }
+    
+    if (dayForecast.minTemp !== Infinity && dayForecast.minTemp !== -Infinity) {
+        const lowTemp = window.utils.createTextElement('div', `${Math.round(dayForecast.minTemp)}°C`, 'forecast-low');
+        tempRange.appendChild(lowTemp);
+    }
+    
+    tempContainer.appendChild(tempRange);
+    
+    // Assemble item
+    item.appendChild(dateContainer);
+    item.appendChild(tempContainer);
     
     return item;
 }
@@ -239,44 +240,38 @@ function createForecastItem(dayForecast) {
  * Cache forecast data for offline use
  */
 function cacheForecastData(data, location) {
-    const cacheData = {
-        data,
-        location,
-        timestamp: Date.now()
-    };
-    localStorage.setItem(FORECAST_CACHE_KEY, JSON.stringify(cacheData));
+    try {
+        const cacheData = {
+            data,
+            location,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(CONFIG.CACHE_KEYS.FORECAST, JSON.stringify(cacheData));
+    } catch (err) {
+        console.error('Error caching forecast data:', err);
+    }
 }
 
 /**
  * Load cached forecast data
  */
 function loadCachedForecast() {
-    const cached = localStorage.getItem(FORECAST_CACHE_KEY);
-    if (cached) {
-        try {
+    try {
+        const cached = localStorage.getItem(CONFIG.CACHE_KEYS.FORECAST);
+        if (cached) {
             const cacheData = JSON.parse(cached);
             const age = Date.now() - cacheData.timestamp;
-            const maxAge = 3600000; // 1 hour
             
-            if (age < maxAge) {
+            if (age < CONFIG.CACHE_MAX_AGE.FORECAST) {
                 displayForecast(cacheData.data, cacheData.location);
                 return true;
             }
-        } catch (err) {
-            console.error('Error loading cached forecast:', err);
         }
+    } catch (err) {
+        console.error('Error loading cached forecast:', err);
     }
     return false;
 }
 
-/**
- * Get stored location from localStorage
- */
-function getStoredLocation() {
-    const stored = localStorage.getItem('user_location_cache');
-    return stored ? JSON.parse(stored) : null;
-}
-
 // Make function available globally for onclick handlers
 window.loadForecast = loadForecast;
-

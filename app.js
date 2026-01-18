@@ -3,19 +3,17 @@
  * Handles current weather display, geolocation, and offline detection
  */
 
-// API Configuration
-const API_KEY = '79fa7767ac09d5fc8db2c7505cd7fea3'; // OpenWeatherMap API key
-const API_BASE_URL = 'https://api.openweathermap.org/data/2.5';
-
-// Cache keys for offline storage
-const CACHE_KEYS = {
-    CURRENT_WEATHER: 'current_weather_cache',
-    LOCATION: 'user_location_cache'
-};
+// Weather alert interval ID (for cleanup)
+let weatherAlertIntervalId = null;
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    checkOnlineStatus();
+    if (!window.utils || !window.CONFIG || !window.apiClient) {
+        console.error('Required dependencies not loaded. Make sure config.js, utils.js, and api.js are loaded first.');
+        return;
+    }
+
+    window.utils.checkOnlineStatus();
     loadWeather();
     checkNotificationPermission();
     
@@ -28,20 +26,17 @@ document.addEventListener('DOMContentLoaded', () => {
  * Check if device is online and update UI accordingly
  */
 function checkOnlineStatus() {
-    const offlineBanner = document.getElementById('offline-banner');
-    if (!navigator.onLine) {
-        offlineBanner.classList.remove('hidden');
-    } else {
-        offlineBanner.classList.add('hidden');
-    }
+    window.utils.checkOnlineStatus();
 }
 
 /**
  * Handle online event
  */
 function handleOnline() {
-    const offlineBanner = document.getElementById('offline-banner');
-    offlineBanner.classList.add('hidden');
+    const offlineBanner = window.utils.getElementByIdSafe('offline-banner');
+    if (offlineBanner) {
+        offlineBanner.classList.add('hidden');
+    }
     loadWeather(); // Refresh weather data when back online
 }
 
@@ -49,8 +44,10 @@ function handleOnline() {
  * Handle offline event
  */
 function handleOffline() {
-    const offlineBanner = document.getElementById('offline-banner');
-    offlineBanner.classList.remove('hidden');
+    const offlineBanner = window.utils.getElementByIdSafe('offline-banner');
+    if (offlineBanner) {
+        offlineBanner.classList.remove('hidden');
+    }
     // Load cached data
     loadCachedWeather();
 }
@@ -59,10 +56,15 @@ function handleOffline() {
  * Load weather data for current or default location
  */
 async function loadWeather() {
-    const loading = document.getElementById('loading');
-    const error = document.getElementById('error');
-    const weatherContent = document.getElementById('weather-content');
-    const errorMessage = document.getElementById('error-message');
+    const loading = window.utils.getElementByIdSafe('loading');
+    const error = window.utils.getElementByIdSafe('error');
+    const weatherContent = window.utils.getElementByIdSafe('weather-content');
+    const errorMessage = window.utils.getElementByIdSafe('error-message');
+
+    if (!loading || !error || !weatherContent || !errorMessage) {
+        console.error('Required DOM elements not found');
+        return;
+    }
 
     // Show loading state
     loading.classList.remove('hidden');
@@ -70,14 +72,19 @@ async function loadWeather() {
     weatherContent.classList.add('hidden');
 
     try {
-        let location = getStoredLocation();
+        let location = window.utils.getStoredLocation();
         
         // If no stored location, try to get current location
         if (!location) {
-            location = await getCurrentLocation();
+            location = await window.utils.getCurrentLocation();
         }
 
-        const weatherData = await fetchWeatherData(location.lat, location.lon);
+        // Validate location before making API call
+        if (!window.utils.validateLocation(location)) {
+            throw new Error('Invalid location data');
+        }
+
+        const weatherData = await window.apiClient.fetchWeatherData(location.lat, location.lon, 'weather');
         displayWeather(weatherData, location);
         
         // Cache the data
@@ -88,156 +95,119 @@ async function loadWeather() {
         
     } catch (err) {
         console.error('Error loading weather:', err);
-        errorMessage.textContent = err.message || 'Failed to load weather data. Please check your connection.';
-        error.classList.remove('hidden');
+        if (errorMessage) {
+            errorMessage.textContent = err.message || 'Failed to load weather data. Please check your connection.';
+        }
+        if (error) {
+            error.classList.remove('hidden');
+        }
         
         // Try to load cached data as fallback
         loadCachedWeather();
     } finally {
-        loading.classList.add('hidden');
-    }
-}
-
-/**
- * Get city name from coordinates using reverse geocoding
- */
-async function getCityNameFromCoords(lat, lon) {
-    try {
-        const url = `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${API_KEY}`;
-        const response = await fetch(url);
-        
-        if (response.ok) {
-            const data = await response.json();
-            if (data && data.length > 0) {
-                return `${data[0].name}, ${data[0].country}`;
-            }
-        }
-    } catch (error) {
-        console.warn('Could not fetch city name:', error);
-    }
-    return null;
-}
-
-/**
- * Get current location using Geolocation API (Native Device Feature #1)
- */
-async function getCurrentLocation() {
-    return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) {
-            reject(new Error('Geolocation is not supported by your browser'));
-            return;
-        }
-
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                const location = {
-                    lat: position.coords.latitude,
-                    lon: position.coords.longitude,
-                    name: 'Current Location',
-                    isCurrentLocation: true // Flag to identify as current location
-                };
-                
-                // Try to get the actual city name (but keep isCurrentLocation flag)
-                try {
-                    const cityName = await getCityNameFromCoords(location.lat, location.lon);
-                    if (cityName) {
-                        location.name = cityName;
-                    }
-                } catch (error) {
-                    console.warn('Could not fetch city name:', error);
-                }
-                
-                // Store location for future use
-                localStorage.setItem(CACHE_KEYS.LOCATION, JSON.stringify(location));
-                resolve(location);
-            },
-            (error) => {
-                // Default to a fallback location if geolocation fails
-                console.warn('Geolocation error:', error);
-                const fallbackLocation = { lat: 51.5074, lon: -0.1278, name: 'London, UK' };
-                resolve(fallbackLocation);
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 300000 // 5 minutes
-            }
-        );
-    });
-}
-
-/**
- * Fetch weather data from API
- */
-async function fetchWeatherData(lat, lon) {
-    const url = `${API_BASE_URL}/weather?lat=${lat}&lon=${lon}&units=metric&appid=${API_KEY}`;
-    
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error('Invalid API key. Please check your OpenWeatherMap API key. New keys may take up to 2 hours to activate.');
-        } else if (response.status === 429) {
-            throw new Error('API rate limit exceeded. Please try again later.');
-        } else {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(`API error: ${response.status} - ${errorData.message || response.statusText}`);
+        if (loading) {
+            loading.classList.add('hidden');
         }
     }
-    
-    return await response.json();
 }
 
 /**
- * Display weather data in the UI
+ * Display weather data in the UI (XSS-safe)
  */
 function displayWeather(data, location) {
-    const weatherContent = document.getElementById('weather-content');
-    const locationNameElement = document.getElementById('location-name');
+    const weatherContent = window.utils.getElementByIdSafe('weather-content');
+    const locationNameElement = window.utils.getElementByIdSafe('location-name');
     
-    // Get city name from weather API response (most accurate)
-    const cityName = `${data.name}, ${data.sys.country}`;
+    if (!weatherContent || !locationNameElement) {
+        console.error('Required DOM elements not found');
+        return;
+    }
+
+    // Validate API response structure
+    if (!window.utils.validateWeatherResponse(data, 'weather')) {
+        console.error('Invalid weather data structure');
+        return;
+    }
+
+    // Safely get city name from weather API response
+    const cityName = data.name && data.sys && data.sys.country 
+        ? `${data.name}, ${data.sys.country}` 
+        : 'Unknown Location';
     
-    // On the current weather page, always show "Current Location" with city name subtitle
-    // The city name comes from the weather API response, which is always accurate
-    // Check if this is a saved location (would have savedLocationId) or current location
-    const isSavedLocation = location.savedLocationId !== undefined;
+    // Check if this is a saved location
+    const isSavedLocation = location.savedLocationId !== undefined && location.savedLocationId !== null;
     
     if (!isSavedLocation) {
-        // Show "Current Location" as main heading and city name as subtitle
-        locationNameElement.innerHTML = `
-            <span>Current Location</span>
-            <div class="location-subtitle">${cityName}</div>
-        `;
+        // Show "Current Location" as main heading and city name as subtitle (XSS-safe)
+        locationNameElement.innerHTML = ''; // Clear first
+        const currentLocationSpan = window.utils.createTextElement('span', 'Current Location');
+        const subtitleDiv = window.utils.createTextElement('div', cityName, 'location-subtitle');
+        locationNameElement.appendChild(currentLocationSpan);
+        locationNameElement.appendChild(subtitleDiv);
         
-        // Update the stored location with the actual city name and mark it as current location
+        // Update the stored location with the actual city name
         if (location.lat && location.lon) {
             location.name = cityName;
-            location.isCurrentLocation = true; // Flag to identify as current location
-            localStorage.setItem(CACHE_KEYS.LOCATION, JSON.stringify(location));
+            location.isCurrentLocation = true;
+            try {
+                localStorage.setItem(CONFIG.CACHE_KEYS.LOCATION, JSON.stringify(location));
+            } catch (err) {
+                console.error('Error storing location:', err);
+            }
         }
     } else {
-        // Show the stored location name (for saved locations from locations page)
-        locationNameElement.textContent = location.name || cityName;
+        // Show the stored location name (XSS-safe)
+        window.utils.setTextContent(locationNameElement, location.name || cityName);
+        
+        // Preserve the saved location info in localStorage
+        if (location.lat && location.lon && location.savedLocationId) {
+            location.name = location.name || cityName;
+            try {
+                localStorage.setItem(CONFIG.CACHE_KEYS.LOCATION, JSON.stringify(location));
+            } catch (err) {
+                console.error('Error storing location:', err);
+            }
+        }
     }
     
-    // Update temperature
-    document.getElementById('temperature').textContent = Math.round(data.main.temp);
-    
-    // Update weather description
-    document.getElementById('weather-description').textContent = data.weather[0].description;
-    
-    // Update weather icon
-    const iconCode = data.weather[0].icon;
-    document.getElementById('weather-icon').src = 
-        `https://openweathermap.org/img/wn/${iconCode}@2x.png`;
-    document.getElementById('weather-icon').alt = data.weather[0].description;
-    
-    // Update details
-    document.getElementById('feels-like').textContent = `${Math.round(data.main.feels_like)}°C`;
-    document.getElementById('humidity').textContent = `${data.main.humidity}%`;
-    document.getElementById('wind-speed').textContent = `${Math.round(data.wind.speed * 3.6)} km/h`;
-    document.getElementById('pressure').textContent = `${data.main.pressure} hPa`;
+    // Safely update weather data with null checks
+    const tempElement = window.utils.getElementByIdSafe('temperature');
+    const descElement = window.utils.getElementByIdSafe('weather-description');
+    const iconElement = window.utils.getElementByIdSafe('weather-icon');
+    const feelsLikeElement = window.utils.getElementByIdSafe('feels-like');
+    const humidityElement = window.utils.getElementByIdSafe('humidity');
+    const windSpeedElement = window.utils.getElementByIdSafe('wind-speed');
+    const pressureElement = window.utils.getElementByIdSafe('pressure');
+
+    if (tempElement && data.main && typeof data.main.temp === 'number') {
+        window.utils.setTextContent(tempElement, Math.round(data.main.temp).toString());
+    }
+
+    if (descElement && data.weather && data.weather[0] && data.weather[0].description) {
+        window.utils.setTextContent(descElement, data.weather[0].description);
+    }
+
+    if (iconElement && data.weather && data.weather[0] && data.weather[0].icon) {
+        const iconCode = data.weather[0].icon;
+        iconElement.src = `https://openweathermap.org/img/wn/${iconCode}@2x.png`;
+        iconElement.alt = data.weather[0].description || 'Weather icon';
+    }
+
+    if (feelsLikeElement && data.main && typeof data.main.feels_like === 'number') {
+        window.utils.setTextContent(feelsLikeElement, `${Math.round(data.main.feels_like)}°C`);
+    }
+
+    if (humidityElement && data.main && typeof data.main.humidity === 'number') {
+        window.utils.setTextContent(humidityElement, `${data.main.humidity}%`);
+    }
+
+    if (windSpeedElement && data.wind && typeof data.wind.speed === 'number') {
+        window.utils.setTextContent(windSpeedElement, `${Math.round(data.wind.speed * 3.6)} km/h`);
+    }
+
+    if (pressureElement && data.main && typeof data.main.pressure === 'number') {
+        window.utils.setTextContent(pressureElement, `${data.main.pressure} hPa`);
+    }
     
     // Show weather content
     weatherContent.classList.remove('hidden');
@@ -247,74 +217,80 @@ function displayWeather(data, location) {
  * Cache weather data for offline use
  */
 function cacheWeatherData(data, location) {
-    const cacheData = {
-        data,
-        location,
-        timestamp: Date.now()
-    };
-    localStorage.setItem(CACHE_KEYS.CURRENT_WEATHER, JSON.stringify(cacheData));
+    try {
+        const cacheData = {
+            data,
+            location,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(CONFIG.CACHE_KEYS.CURRENT_WEATHER, JSON.stringify(cacheData));
+    } catch (err) {
+        console.error('Error caching weather data:', err);
+    }
 }
 
 /**
  * Load cached weather data
  */
 function loadCachedWeather() {
-    const cached = localStorage.getItem(CACHE_KEYS.CURRENT_WEATHER);
-    if (cached) {
-        try {
+    try {
+        const cached = localStorage.getItem(CONFIG.CACHE_KEYS.CURRENT_WEATHER);
+        if (cached) {
             const cacheData = JSON.parse(cached);
             const age = Date.now() - cacheData.timestamp;
-            const maxAge = 3600000; // 1 hour
             
-            if (age < maxAge) {
+            if (age < CONFIG.CACHE_MAX_AGE.WEATHER) {
                 displayWeather(cacheData.data, cacheData.location);
                 updateLastUpdated(cacheData.timestamp);
                 return true;
             }
-        } catch (err) {
-            console.error('Error loading cached weather:', err);
         }
+    } catch (err) {
+        console.error('Error loading cached weather:', err);
     }
     return false;
-}
-
-/**
- * Get stored location from localStorage
- */
-function getStoredLocation() {
-    const stored = localStorage.getItem(CACHE_KEYS.LOCATION);
-    return stored ? JSON.parse(stored) : null;
 }
 
 /**
  * Update last updated timestamp
  */
 function updateLastUpdated(timestamp = null) {
-    const lastUpdated = document.getElementById('last-updated');
+    const lastUpdated = window.utils.getElementByIdSafe('last-updated');
+    if (!lastUpdated) {
+        return;
+    }
+    
     const time = timestamp || Date.now();
     const date = new Date(time);
-    lastUpdated.textContent = `Last updated: ${date.toLocaleString()}`;
+    window.utils.setTextContent(lastUpdated, `Last updated: ${date.toLocaleString()}`);
 }
 
 /**
  * Use current location button handler
  */
-document.getElementById('use-location-btn')?.addEventListener('click', async () => {
-    try {
-        // Clear stored location to force fresh geolocation
-        localStorage.removeItem(CACHE_KEYS.LOCATION);
-        const location = await getCurrentLocation();
-        await loadWeather();
-    } catch (err) {
-        alert('Unable to get your location. Please check your browser permissions.');
-    }
-});
+const useLocationBtn = window.utils.getElementByIdSafe('use-location-btn');
+if (useLocationBtn) {
+    useLocationBtn.addEventListener('click', async () => {
+        try {
+            // Clear stored location to force fresh geolocation
+            localStorage.removeItem(CONFIG.CACHE_KEYS.LOCATION);
+            const location = await window.utils.getCurrentLocation();
+            await loadWeather();
+        } catch (err) {
+            console.error('Error getting location:', err);
+            window.alertModal('Unable to get your location. Please check your browser permissions.', 'Location Error');
+        }
+    });
+}
 
 /**
  * Check notification permission status
  */
 function checkNotificationPermission() {
-    const notificationPrompt = document.getElementById('notification-prompt');
+    const notificationPrompt = window.utils.getElementByIdSafe('notification-prompt');
+    if (!notificationPrompt) {
+        return;
+    }
     
     if ('Notification' in window && Notification.permission === 'default') {
         notificationPrompt.classList.remove('hidden');
@@ -328,7 +304,7 @@ function checkNotificationPermission() {
  */
 async function requestNotificationPermission() {
     if (!('Notification' in window)) {
-        alert('This browser does not support notifications');
+        window.alertModal('This browser does not support notifications', 'Notification Error');
         return;
     }
 
@@ -336,7 +312,10 @@ async function requestNotificationPermission() {
         const permission = await Notification.requestPermission();
         
         if (permission === 'granted') {
-            document.getElementById('notification-prompt').classList.add('hidden');
+            const notificationPrompt = window.utils.getElementByIdSafe('notification-prompt');
+            if (notificationPrompt) {
+                notificationPrompt.classList.add('hidden');
+            }
             
             // Show a test notification
             showNotification('Notifications Enabled', 'You will receive weather alerts!');
@@ -344,7 +323,7 @@ async function requestNotificationPermission() {
             // Schedule weather alerts
             scheduleWeatherAlerts();
         } else {
-            alert('Notification permission denied');
+            window.alertModal('Notification permission denied', 'Permission Denied');
         }
     } catch (err) {
         console.error('Error requesting notification permission:', err);
@@ -364,49 +343,79 @@ function showNotification(title, body, icon = null) {
             requireInteraction: false
         };
         
-        new Notification(title, options);
+        try {
+            new Notification(title, options);
+        } catch (err) {
+            console.error('Error showing notification:', err);
+        }
     }
 }
 
 /**
- * Schedule weather alerts based on conditions
+ * Schedule weather alerts based on conditions (with cleanup)
  */
 function scheduleWeatherAlerts() {
+    // Clear any existing interval to prevent memory leaks
+    if (weatherAlertIntervalId !== null) {
+        clearInterval(weatherAlertIntervalId);
+        weatherAlertIntervalId = null;
+    }
+
     // Check weather every hour and send alerts for severe conditions
-    setInterval(async () => {
+    weatherAlertIntervalId = setInterval(async () => {
         try {
-            const location = getStoredLocation();
-            if (!location) return;
+            const location = window.utils.getStoredLocation();
+            if (!location || !window.utils.validateLocation(location)) {
+                return;
+            }
             
-            const weatherData = await fetchWeatherData(location.lat, location.lon);
+            const weatherData = await window.apiClient.fetchWeatherData(location.lat, location.lon, 'weather');
+            
+            // Validate response structure
+            if (!window.utils.validateWeatherResponse(weatherData, 'weather')) {
+                return;
+            }
             
             // Alert for severe weather conditions
-            const condition = weatherData.weather[0].main.toLowerCase();
-            const temp = weatherData.main.temp;
-            
-            if (condition.includes('thunderstorm') || condition.includes('extreme')) {
-                showNotification(
-                    'Severe Weather Alert',
-                    `${weatherData.weather[0].description} in ${weatherData.name}. Stay safe!`
-                );
-            } else if (temp < 0) {
-                showNotification(
-                    'Freezing Temperature',
-                    `Temperature is ${Math.round(temp)}°C. Bundle up!`
-                );
-            } else if (temp > 35) {
-                showNotification(
-                    'Hot Weather Alert',
-                    `Temperature is ${Math.round(temp)}°C. Stay hydrated!`
-                );
+            if (weatherData.weather && weatherData.weather[0] && weatherData.main) {
+                const condition = weatherData.weather[0].main ? weatherData.weather[0].main.toLowerCase() : '';
+                const temp = typeof weatherData.main.temp === 'number' ? weatherData.main.temp : null;
+                const description = weatherData.weather[0].description || 'Unknown condition';
+                const cityName = weatherData.name || 'Unknown location';
+                
+                if (condition.includes('thunderstorm') || condition.includes('extreme')) {
+                    showNotification(
+                        'Severe Weather Alert',
+                        `${description} in ${cityName}. Stay safe!`
+                    );
+                } else if (temp !== null && temp < CONFIG.ALERTS.FREEZING_TEMP) {
+                    showNotification(
+                        'Freezing Temperature',
+                        `Temperature is ${Math.round(temp)}°C. Bundle up!`
+                    );
+                } else if (temp !== null && temp > CONFIG.ALERTS.HOT_TEMP) {
+                    showNotification(
+                        'Hot Weather Alert',
+                        `Temperature is ${Math.round(temp)}°C. Stay hydrated!`
+                    );
+                }
             }
         } catch (err) {
             console.error('Error checking weather for alerts:', err);
         }
-    }, 3600000); // Check every hour
+    }, CONFIG.ALERTS.CHECK_INTERVAL);
 }
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    if (weatherAlertIntervalId !== null) {
+        clearInterval(weatherAlertIntervalId);
+        weatherAlertIntervalId = null;
+    }
+    // Cancel all pending API requests
+    window.apiClient.cancelAllRequests();
+});
 
 // Make functions available globally for onclick handlers
 window.loadWeather = loadWeather;
 window.requestNotificationPermission = requestNotificationPermission;
-
