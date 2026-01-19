@@ -147,6 +147,7 @@ class APIClient {
         try {
             const url = `${CONFIG.GEO_API_BASE_URL}/direct?q=${encodeURIComponent(cityName)}&limit=1&appid=${CONFIG.API_KEY}`;
             
+            console.log('Fetching location for:', cityName);
             const response = await fetch(url, {
                 signal: controller.signal
             });
@@ -154,21 +155,39 @@ class APIClient {
             this.abortControllers.delete(requestId);
             
             if (!response.ok) {
-                if (response.status === 401) {
-                    throw new Error('Invalid API key. Please check your OpenWeatherMap API key.');
+                let errorMessage = 'Failed to fetch location';
+                try {
+                    const errorData = await response.json();
+                    console.error('API Error Response:', errorData);
+                    if (response.status === 401) {
+                        errorMessage = 'Invalid API key. Please check your OpenWeatherMap API key.';
+                    } else if (errorData.message) {
+                        errorMessage = errorData.message;
+                    } else if (response.status === 404) {
+                        errorMessage = `Location "${cityName}" not found`;
+                    }
+                } catch (e) {
+                    // If we can't parse error response, use status-based message
+                    if (response.status === 401) {
+                        errorMessage = 'Invalid API key. Please check your OpenWeatherMap API key.';
+                    } else if (response.status === 404) {
+                        errorMessage = `Location "${cityName}" not found`;
+                    }
                 }
-                throw new Error('Failed to fetch location');
+                throw new Error(errorMessage);
             }
             
             const data = await response.json();
+            console.log('API Response:', data);
             
             if (!data || !Array.isArray(data) || data.length === 0) {
-                throw new Error('Location not found');
+                throw new Error(`Location "${cityName}" not found`);
             }
             
             // Validate response structure
             if (!data[0].lat || !data[0].lon || !data[0].name || !data[0].country) {
-                throw new Error('Invalid location data received');
+                console.error('Invalid location data structure:', data[0]);
+                throw new Error('Invalid location data received from API');
             }
             
             return {
@@ -183,6 +202,12 @@ class APIClient {
             if (error.name === 'AbortError') {
                 throw new Error('Request was cancelled');
             }
+            
+            // Re-throw with more context if it's a network error
+            if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
+                throw new Error('Network error. Please check your internet connection.');
+            }
+            
             throw error;
         }
     }

@@ -3,7 +3,9 @@
  * Handles saved locations management
  */
 
-// Debounced add location function
+// (Disabled) Debounced add location on input:
+// This was causing "Location not found" errors while the user is still typing.
+// We'll only search on Enter or when the user clicks "Add Location".
 let debouncedAddLocation = null;
 
 // Initialize locations page
@@ -20,19 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     
-    // Setup debounced input handler
+    // Setup input handlers
     const locationInput = window.utils.getElementByIdSafe('location-input');
     if (locationInput) {
-        // Debounce input to prevent multiple API calls
-        debouncedAddLocation = window.utils.debounce(() => {
-            const value = locationInput.value.trim();
-            if (value) {
-                addLocation();
-            }
-        }, CONFIG.RATE_LIMIT.DEBOUNCE_MS);
-
-        locationInput.addEventListener('input', debouncedAddLocation);
-        
         // Handle Enter key
         locationInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
@@ -121,16 +113,73 @@ async function addLocation() {
         return;
     }
 
+    // Show loading state
+    const addButton = document.querySelector('.add-location-form .btn-add');
+    const originalButtonText = addButton?.textContent;
+    if (addButton) {
+        addButton.textContent = 'Searching...';
+        addButton.disabled = true;
+    }
+
     try {
+        console.log('Attempting to add location:', cityName);
         const location = await window.apiClient.fetchLocationFromCityName(cityName);
+        console.log('Location found:', location);
+        
+        // Validate location has required fields
+        if (!location || !location.lat || !location.lon || !location.name) {
+            throw new Error('Location data is incomplete');
+        }
+        
         // Add unique ID
         location.id = Date.now();
-        addLocationToList(location);
-        saveLocations();
+        console.log('Location with ID:', location);
+        
+        try {
+            addLocationToList(location);
+            console.log('Location added to list and saved successfully');
+        } catch (listError) {
+            console.error('Error in addLocationToList:', listError);
+            throw new Error(`Failed to add location to list: ${listError.message}`);
+        }
+        
         input.value = ''; // Clear input
+        console.log('Location added successfully!');
     } catch (error) {
-        console.error('Error adding location:', error);
-        window.alertModal(`Could not find location: ${cityName}. Please try again.`, 'Location Not Found');
+        console.error('Error adding location - Full error object:', error);
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+        
+        // Provide user-friendly error message
+        let errorMessage;
+        const errorMsg = error.message || String(error);
+        
+        // More specific error matching
+        if (errorMsg.toLowerCase().includes('not found') && errorMsg.toLowerCase().includes('location')) {
+            errorMessage = `Could not find location "${cityName}". Please check the spelling and try again.`;
+        } else if (errorMsg.includes('API key') || errorMsg.includes('401')) {
+            errorMessage = 'Invalid API key. Please check your OpenWeatherMap API key configuration.';
+        } else if (errorMsg.includes('Network') || errorMsg.includes('connection') || errorMsg.includes('Failed to fetch')) {
+            errorMessage = 'Network error. Please check your internet connection and try again.';
+        } else if (errorMsg.includes('Rate limit')) {
+            errorMessage = 'Too many requests. Please wait a moment and try again.';
+        } else if (errorMsg.includes('Duplicate') || errorMsg.includes('already in')) {
+            // Don't show error for duplicates, it's already handled in addLocationToList
+            return;
+        } else if (errorMsg.includes('incomplete') || errorMsg.includes('Invalid location data')) {
+            errorMessage = `Invalid location data received. Please try searching again.`;
+        } else {
+            errorMessage = `Error: ${errorMsg}. Please try again.`;
+        }
+        
+        window.alertModal(errorMessage, 'Error');
+    } finally {
+        // Restore button state
+        const addButton = document.querySelector('.add-location-form .btn-add');
+        if (addButton && originalButtonText) {
+            addButton.textContent = originalButtonText;
+            addButton.disabled = false;
+        }
     }
 }
 
@@ -138,12 +187,20 @@ async function addLocation() {
  * Add location to the list
  */
 function addLocationToList(location) {
+    console.log('addLocationToList called with:', location);
+    
     if (!window.utils.validateLocation(location)) {
-        console.error('Invalid location data');
-        return;
+        console.error('Invalid location data:', location);
+        throw new Error('Invalid location data: missing or invalid coordinates');
+    }
+    
+    if (!location.id) {
+        console.error('Location missing ID:', location);
+        throw new Error('Location missing required ID field');
     }
 
     const locations = getSavedLocations();
+    console.log('Current saved locations:', locations);
     
     // Check if location already exists (by coordinates)
     const exists = locations.some(loc => 
@@ -152,12 +209,30 @@ function addLocationToList(location) {
     );
     
     if (exists) {
+        console.log('Location already exists, showing duplicate message');
         window.alertModal('This location is already in your list', 'Duplicate Location');
         return;
     }
     
     locations.push(location);
-    displayLocations(locations);
+    console.log('Location added to array, now displaying:', locations);
+    
+    try {
+        displayLocations(locations);
+        console.log('Locations displayed successfully');
+        
+        // Save the updated locations array
+        try {
+            localStorage.setItem(CONFIG.CACHE_KEYS.SAVED_LOCATIONS, JSON.stringify(locations));
+            console.log('Locations saved to localStorage after adding');
+        } catch (saveErr) {
+            console.error('Error saving after add:', saveErr);
+            // Don't throw here, just log - the display worked
+        }
+    } catch (displayError) {
+        console.error('Error displaying locations:', displayError);
+        throw new Error(`Failed to display locations: ${displayError.message}`);
+    }
 }
 
 /**
@@ -175,14 +250,48 @@ function getSavedLocations() {
 
 /**
  * Save locations to localStorage
+ * @param {Array} locationsToSave - Optional array of locations to save. If not provided, gets from current display.
  */
-function saveLocations() {
+function saveLocations(locationsToSave = null) {
     try {
-        const locations = getSavedLocations();
+        let locations = locationsToSave;
+        
+        if (!locations) {
+            // Get locations from the displayed items in the DOM
+            const locationsList = window.utils.getElementByIdSafe('locations-list');
+            if (locationsList) {
+                const locationItems = locationsList.querySelectorAll('.location-item');
+                const allSavedLocations = getSavedLocations();
+                locations = [];
+                
+                // Extract location IDs from displayed items
+                locationItems.forEach((item) => {
+                    const locationIdAttr = item.querySelector('[data-location-id]')?.getAttribute('data-location-id');
+                    if (locationIdAttr) {
+                        const locationId = parseInt(locationIdAttr, 10);
+                        const location = allSavedLocations.find(loc => loc.id === locationId);
+                        if (location) {
+                            locations.push(location);
+                        }
+                    }
+                });
+                
+                // If we couldn't get from DOM, fall back to localStorage
+                if (locations.length === 0) {
+                    locations = allSavedLocations;
+                }
+            } else {
+                // Fallback to getting from localStorage
+                locations = getSavedLocations();
+            }
+        }
+        
+        console.log('Saving locations to localStorage:', locations);
         localStorage.setItem(CONFIG.CACHE_KEYS.SAVED_LOCATIONS, JSON.stringify(locations));
+        console.log('Locations saved successfully');
     } catch (err) {
         console.error('Error saving locations:', err);
-        window.alertModal('Error saving locations. Storage may be full.', 'Storage Error');
+        throw new Error(`Failed to save locations: ${err.message}`);
     }
 }
 

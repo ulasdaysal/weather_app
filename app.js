@@ -20,6 +20,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Listen for online/offline events
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    
+    // Setup city search input handler
+    const citySearchInput = window.utils.getElementByIdSafe('city-search-input');
+    if (citySearchInput) {
+        // Handle Enter key
+        citySearchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchCityWeather();
+            }
+        });
+    }
 });
 
 /**
@@ -266,6 +278,128 @@ function updateLastUpdated(timestamp = null) {
 }
 
 /**
+ * Search for weather by city name
+ */
+async function searchCityWeather() {
+    console.log('searchCityWeather called');
+    const input = window.utils.getElementByIdSafe('city-search-input');
+    if (!input) {
+        console.error('City search input element not found');
+        window.alertModal('Search input not found. Please refresh the page.', 'Error');
+        return;
+    }
+
+    const cityName = input.value.trim();
+    console.log('Searching for city:', cityName);
+
+    // Validate input
+    if (!window.utils.validateCityName(cityName)) {
+        window.alertModal('Please enter a valid city name', 'Invalid Input');
+        return;
+    }
+
+    const loading = window.utils.getElementByIdSafe('loading');
+    const error = window.utils.getElementByIdSafe('error');
+    const weatherContent = window.utils.getElementByIdSafe('weather-content');
+    const errorMessage = window.utils.getElementByIdSafe('error-message');
+
+    if (!loading || !error || !weatherContent || !errorMessage) {
+        console.error('Required DOM elements not found:', { loading, error, weatherContent, errorMessage });
+        window.alertModal('Page elements not loaded. Please refresh the page.', 'Error');
+        return;
+    }
+
+    // Show loading state
+    loading.classList.remove('hidden');
+    error.classList.add('hidden');
+    weatherContent.classList.add('hidden');
+
+    // Disable search button during search
+    const searchButton = document.querySelector('.add-location-form .btn-add');
+    const originalButtonText = searchButton?.textContent;
+    if (searchButton) {
+        searchButton.disabled = true;
+        searchButton.textContent = 'Searching...';
+    }
+
+    try {
+        console.log('Fetching location for:', cityName);
+        // Fetch location coordinates from city name
+        const location = await window.apiClient.fetchLocationFromCityName(cityName);
+        console.log('Location found:', location);
+        
+        // Validate location before making API call
+        if (!window.utils.validateLocation(location)) {
+            throw new Error('Invalid location data received');
+        }
+
+        console.log('Fetching weather data for:', location);
+        // Fetch weather data
+        const weatherData = await window.apiClient.fetchWeatherData(location.lat, location.lon, 'weather');
+        console.log('Weather data received:', weatherData);
+        
+        // Store the searched location
+        location.isCurrentLocation = false;
+        try {
+            localStorage.setItem(CONFIG.CACHE_KEYS.LOCATION, JSON.stringify(location));
+        } catch (err) {
+            console.error('Error storing location:', err);
+        }
+        
+        displayWeather(weatherData, location);
+        
+        // Cache the data
+        cacheWeatherData(weatherData, location);
+        
+        // Update last updated time
+        updateLastUpdated();
+        
+        // Clear input
+        input.value = '';
+        console.log('Search completed successfully');
+        
+    } catch (err) {
+        console.error('Error searching city weather - Full error:', err);
+        console.error('Error message:', err.message);
+        console.error('Error stack:', err.stack);
+        
+        let errorMsg;
+        const errMessage = err.message || String(err);
+        
+        if (errMessage.includes('not found') || errMessage.includes('Location')) {
+            errorMsg = `Could not find city "${cityName}". Please check the spelling and try again.`;
+        } else if (errMessage.includes('API key') || errMessage.includes('401')) {
+            errorMsg = 'Invalid API key. Please check your OpenWeatherMap API key configuration.';
+        } else if (errMessage.includes('Network') || errMessage.includes('connection') || errMessage.includes('Failed to fetch')) {
+            errorMsg = 'Network error. Please check your internet connection and try again.';
+        } else if (errMessage.includes('Rate limit')) {
+            errorMsg = 'Too many requests. Please wait a moment and try again.';
+        } else {
+            errorMsg = `Error: ${errMessage}. Please try again.`;
+        }
+        
+        if (errorMessage) {
+            errorMessage.textContent = errorMsg;
+        }
+        if (error) {
+            error.classList.remove('hidden');
+        }
+        
+        // Also show modal for better visibility
+        window.alertModal(errorMsg, 'Search Error');
+    } finally {
+        if (loading) {
+            loading.classList.add('hidden');
+        }
+        // Restore search button
+        if (searchButton && originalButtonText) {
+            searchButton.disabled = false;
+            searchButton.textContent = originalButtonText;
+        }
+    }
+}
+
+/**
  * Use current location button handler
  */
 const useLocationBtn = window.utils.getElementByIdSafe('use-location-btn');
@@ -419,3 +553,4 @@ window.addEventListener('beforeunload', () => {
 // Make functions available globally for onclick handlers
 window.loadWeather = loadWeather;
 window.requestNotificationPermission = requestNotificationPermission;
+window.searchCityWeather = searchCityWeather;

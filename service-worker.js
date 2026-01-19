@@ -1,16 +1,7 @@
-/**
- * Weather PWA - Service Worker
- * Implements caching strategy for offline functionality
- * 
- * Caching Strategy:
- * - Network First: For API calls (weather data changes frequently)
- * - Cache First: For static assets (HTML, CSS, JS, images)
- * - Stale While Revalidate: For icons and manifest
- */
 
-const CACHE_NAME = 'weather-pwa-v1';
-const STATIC_CACHE = 'weather-pwa-static-v1';
-const API_CACHE = 'weather-pwa-api-v1';
+const CACHE_NAME = 'weather-pwa-v2';
+const STATIC_CACHE = 'weather-pwa-static-v2';
+const API_CACHE = 'weather-pwa-api-v2';
 
 /**
  * Get base path for assets (works in subdirectories)
@@ -50,7 +41,7 @@ const STATIC_ASSETS = [
 ];
 
 /**
- * Install Event - Cache static assets
+  Cache static assets
  */
 self.addEventListener('install', (event) => {
     console.log('Service Worker: Installing...');
@@ -74,7 +65,7 @@ self.addEventListener('install', (event) => {
 });
 
 /**
- * Activate Event - Clean up old caches
+ Clean up old caches
  */
 self.addEventListener('activate', (event) => {
     console.log('Service Worker: Activating...');
@@ -116,20 +107,26 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Strategy 1: Cache First for static assets (HTML, CSS, JS, images)
-    if (isStaticAsset(request.url)) {
-        event.respondWith(cacheFirstStrategy(request));
+    // Network First for HTML (so UI updates ship reliably)
+    if (isHTMLRequest(request.url)) {
+        event.respondWith(networkFirstStrategy(request));
         return;
     }
 
-    // Strategy 2: Network First for API calls (weather data)
+    // Stale While Revalidate for other static assets (JS/CSS/icons)
+    if (isStaticAsset(request.url)) {
+        event.respondWith(staleWhileRevalidateStrategy(request, STATIC_CACHE));
+        return;
+    }
+
+    // Network First for API calls (weather data)
     if (isAPIRequest(request.url)) {
         event.respondWith(networkFirstStrategy(request));
         return;
     }
 
-    // Strategy 3: Stale While Revalidate for other resources
-    event.respondWith(staleWhileRevalidateStrategy(request));
+    //  Stale While Revalidate for other resources
+    event.respondWith(staleWhileRevalidateStrategy(request, CACHE_NAME));
 });
 
 /**
@@ -148,8 +145,15 @@ function isStaticAsset(url) {
            urlPath.includes('service-worker-register.js') ||
            urlPath.includes('manifest.json') ||
            urlPath.includes('/icons/') ||
-           urlPath.endsWith('.html') ||
            urlPath.endsWith('/');
+}
+
+/**
+ * Check if request is for an HTML document
+ */
+function isHTMLRequest(url) {
+    const urlPath = new URL(url).pathname;
+    return urlPath.endsWith('.html') || urlPath.endsWith('/');
 }
 
 /**
@@ -235,8 +239,8 @@ async function networkFirstStrategy(request) {
  * Return cached version immediately, update cache in background
  * Best for: Resources that can be slightly stale
  */
-async function staleWhileRevalidateStrategy(request) {
-    const cache = await caches.open(CACHE_NAME);
+async function staleWhileRevalidateStrategy(request, cacheName) {
+    const cache = await caches.open(cacheName);
     const cachedResponse = await cache.match(request);
     
     // Fetch fresh data in the background
